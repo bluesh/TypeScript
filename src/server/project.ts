@@ -133,7 +133,7 @@ namespace ts.server {
         /*@internal*/
         lsHost: LSHost;
 
-        builder: Builder;
+        private builder: Builder;
         /**
          * Set of files names that were updated since the last call to getChangesSinceVersion.
          */
@@ -309,6 +309,12 @@ namespace ts.server {
             return !emitSkipped;
         }
 
+        getChangedFiles() {
+            Debug.assert(this.languageServiceEnabled);
+            this.ensureBuilder();
+            return this.builder.getChangedProgramFiles(this.program);
+        }
+
         getProjectVersion() {
             return this.projectStateVersion.toString();
         }
@@ -393,6 +399,10 @@ namespace ts.server {
             // signal language service to release source files acquired from document registry
             this.languageService.dispose();
             this.languageService = undefined;
+        }
+
+        isClosed() {
+            return this.lsHost === undefined;
         }
 
         getCompilerOptions() {
@@ -637,8 +647,9 @@ namespace ts.server {
 
             // update builder only if language service is enabled
             // otherwise tell it to drop its internal state
+            // Note we are retaining builder so we can send events for project change
             if (this.builder) {
-                if (this.languageServiceEnabled && this.compileOnSaveEnabled) {
+                if (this.languageServiceEnabled) {
                     this.builder.onProgramUpdateGraph(this.program, this.lsHost.hasInvalidatedResolution);
                 }
                 else {
