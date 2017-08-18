@@ -161,8 +161,6 @@ namespace ts.server {
 
         private typingFiles: SortedReadonlyArray<string>;
 
-        protected projectErrors: Diagnostic[];
-
         public typesVersion = 0;
 
         public isNonTsProject() {
@@ -257,12 +255,12 @@ namespace ts.server {
         /**
          * Get the errors that dont have any file name associated
          */
-        getGlobalProjectErrors() {
-            return filter(this.projectErrors, diagnostic => !diagnostic.file);
+        getGlobalProjectErrors(): ReadonlyArray<Diagnostic> {
+            return emptyArray;
         }
 
-        getAllProjectErrors() {
-            return this.projectErrors;
+        getAllProjectErrors(): ReadonlyArray<Diagnostic> {
+            return emptyArray;
         }
 
         getLanguageService(ensureSynchronized = true): LanguageService {
@@ -384,7 +382,6 @@ namespace ts.server {
             this.resolutionCache.clear();
             this.resolutionCache = undefined;
             this.cachedUnresolvedImportsPerFile = undefined;
-            this.projectErrors = undefined;
             this.lsHost.dispose();
             this.lsHost = undefined;
 
@@ -436,6 +433,7 @@ namespace ts.server {
             return result;
         }
 
+        /*@internal*/
         getRootFilesMap() {
             return this.rootFilesMap;
         }
@@ -546,7 +544,7 @@ namespace ts.server {
             this.markAsDirty();
         }
 
-        // add a root file to project
+        // add a root file that doesnt exist on host
         addMissingFileRoot(fileName: NormalizedPath) {
             const path = this.projectService.toPath(fileName);
             this.rootFilesMap.set(path, fileName);
@@ -873,57 +871,6 @@ namespace ts.server {
             }
         }
 
-        getReferencedFiles(path: Path): Map<true> {
-            const referencedFiles = createMap<true>();
-            if (!this.languageServiceEnabled) {
-                return referencedFiles;
-            }
-
-            const sourceFile = this.getSourceFile(path);
-            if (!sourceFile) {
-                return referencedFiles;
-            }
-            // We need to use a set here since the code can contain the same import twice,
-            // but that will only be one dependency.
-            // To avoid invernal conversion, the key of the referencedFiles map must be of type Path
-            if (sourceFile.imports && sourceFile.imports.length > 0) {
-                const checker: TypeChecker = this.program.getTypeChecker();
-                for (const importName of sourceFile.imports) {
-                    const symbol = checker.getSymbolAtLocation(importName);
-                    if (symbol && symbol.declarations && symbol.declarations[0]) {
-                        const declarationSourceFile = symbol.declarations[0].getSourceFile();
-                        if (declarationSourceFile) {
-                            referencedFiles.set(declarationSourceFile.path, true);
-                        }
-                    }
-                }
-            }
-
-            const currentDirectory = getDirectoryPath(path);
-            // Handle triple slash references
-            if (sourceFile.referencedFiles && sourceFile.referencedFiles.length > 0) {
-                for (const referencedFile of sourceFile.referencedFiles) {
-                    const referencedPath = this.projectService.toPath(referencedFile.fileName, currentDirectory);
-                    referencedFiles.set(referencedPath, true);
-                }
-            }
-
-            // Handle type reference directives
-            if (sourceFile.resolvedTypeReferenceDirectiveNames) {
-                sourceFile.resolvedTypeReferenceDirectiveNames.forEach((resolvedTypeReferenceDirective) => {
-                    if (!resolvedTypeReferenceDirective) {
-                        return;
-                    }
-
-                    const fileName = resolvedTypeReferenceDirective.resolvedFileName;
-                    const typeFilePath = this.projectService.toPath(fileName, currentDirectory);
-                    referencedFiles.set(typeFilePath, true);
-                });
-            }
-
-            return referencedFiles;
-        }
-
         // remove a root file from project
         protected removeRoot(info: ScriptInfo): void {
             orderedRemoveItem(this.rootFiles, info);
@@ -1055,6 +1002,8 @@ namespace ts.server {
         /** Used for configured projects which may have multiple open roots */
         openRefCount = 0;
 
+        private projectErrors: Diagnostic[];
+
         constructor(configFileName: NormalizedPath,
             projectService: ProjectService,
             documentRegistry: DocumentRegistry,
@@ -1069,7 +1018,7 @@ namespace ts.server {
         }
 
         /**
-         * Checks if the project has reload from disk pending, if thats pending, it reloads (and then updates graph as part of that) instead of just updating the graph
+         * If the project has reload from disk pending, it reloads (and then updates graph as part of that) instead of just updating the graph
          * @returns: true if set of files in the project stays the same and false - otherwise.
          */
         updateGraph(): boolean {
@@ -1171,6 +1120,20 @@ namespace ts.server {
             return getDirectoryPath(this.getConfigFilePath());
         }
 
+        /**
+         * Get the errors that dont have any file name associated
+         */
+        getGlobalProjectErrors(): ReadonlyArray<Diagnostic> {
+            return filter(this.projectErrors, diagnostic => !diagnostic.file);
+        }
+
+        /**
+         * Get all the project errors
+         */
+        getAllProjectErrors(): ReadonlyArray<Diagnostic> {
+            return this.projectErrors;
+        }
+
         setProjectErrors(projectErrors: Diagnostic[]) {
             this.projectErrors = projectErrors;
         }
@@ -1195,6 +1158,7 @@ namespace ts.server {
             }));
         }
 
+        /*@internal*/
         watchWildcards(wildcardDirectories: Map<WatchDirectoryFlags>) {
             updateWatchingWildcardDirectories(
                 this.directoriesWatchedForWildcards || (this.directoriesWatchedForWildcards = createMap()),
@@ -1216,6 +1180,7 @@ namespace ts.server {
             this.projectService.closeDirectoryWatcher(WatchType.WildcardDirectories, this, directory, watcher, flags, closeReason);
         }
 
+        /*@internal*/
         stopWatchingWildCards(reason: WatcherCloseReason) {
             if (this.directoriesWatchedForWildcards) {
                 clearMap(
@@ -1226,6 +1191,7 @@ namespace ts.server {
             }
         }
 
+        /*@internal*/
         watchTypeRoots() {
             const newTypeRoots = arrayToSet(this.getEffectiveTypeRoots(), dir => this.projectService.toCanonicalFileName(dir));
             mutateMap(
@@ -1244,6 +1210,7 @@ namespace ts.server {
             );
         }
 
+        /*@internal*/
         stopWatchingTypeRoots(reason: WatcherCloseReason) {
             if (this.typeRootsWatchers) {
                 clearMap(
